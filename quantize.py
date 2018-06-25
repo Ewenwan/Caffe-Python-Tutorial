@@ -1,4 +1,32 @@
 # -*- coding:utf-8 -*-
+"""
+聚类量化仅仅减少内存消耗，并不能减少计算量
+
+在实际运行中，也必须通过聚类中心表将量化后权重值转换为32位的浮点数，
+因此并不能在减少网络的实际运行内存，只是减少网络的内存消耗。
+
+要真正减少网络内存消耗，从而达到网络实际运行速度的提高，目前有两类主流方法：
+    1、网络剪裁
+    2、量化
+
+网络权重共享量化也是一类重要的网络压缩方法，
+其本质在于先通过聚类方法得到该层权重的聚类中心，
+然后通过聚类中心值来表示原权重值。
+因此权重值并不是由32位的浮点数来表示，而是由其对应的聚类中心的序号表示，
+如果聚类级别为8位，此时权重值只需要用8位就能表示。
+
+对于网络权重量化也有三个问题：
+
+量化级别的确定，同修剪率一样，可以通过试错的试验的方法来确定
+量化后网络重新训练问题
+量化中心的初始选择问题：聚类中心采用线性方法初始化，将初始点均匀分散，
+这种初始化方法不仅操作简单，
+而且能够将对网络影响较大但实际分布较少的较大权重值也包含到初始中心点中，
+因此不容易造成较大权重的丢失。
+
+
+"""
+
 # 通过Kmeans聚类的方法来量化权重
 import numpy as np
 import matplotlib.pyplot as plt
@@ -10,6 +38,8 @@ import caffe
 import time
 
 # 获得各层的量化码表
+# Kmean聚类得到每层的聚类中心
+# 对于Kmean聚类方法，这里调用的是scipy库的聚类函数
 def kmeans_net(net, layers, num_c=16, initials=None):
     # net: 网络
     # layers: 需要量化的层
@@ -91,7 +121,8 @@ def quantize_net(net, codebook):
 
     return codes_W
 
-
+# 使用聚类得到的字典进行量化各层
+# 通过各层聚类来进行各层权重的量化
 def quantize_net_with_dict(net, layers, codebook, use_stochastic=False, timing=False):
     start_time = time.time()
     codeDict = {} # 记录各个量化中心所处的位置
@@ -127,6 +158,8 @@ def static_vars(**kwargs):
         return func
     return decorate
 
+# 重新训练及聚类中心的更新
+# 重新训练时，其精度的变化图，可以看到随着迭代次数增加，其精度也逐渐提升
 @static_vars(step_cache={}, step_cache2={}, count=0)
 def update_codebook_net(net, codebook, codeDict, maskCode, args, update_layers=None, snapshot=None):
 
@@ -316,6 +349,7 @@ def save_pruned_quantize_net(codebook, maskcode, net_filename, total_layers):
 
     np.savez(net_filename, quantizeNet)
 
+# caffe接口
 
 caffe.set_mode_gpu()
 caffe.set_device(0)
